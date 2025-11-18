@@ -1,111 +1,40 @@
-name: CI / CD
+name: CI → GitHub Pages
 
-# Run only on direct pushes to main (no pull_request)
+# Run only on direct pushes to main (single-developer preference)
 on:
   push:
     branches: ["main"]
 
-concurrency:
-  group: ci-cd-${{ github.ref }}
-  cancel-in-progress: true
-
-permissions:
-  contents: read
-  id-token: write   # only needed if you use cloud provider OIDC; remove if not used
-
 jobs:
-  build:
-    name: Build & Test
+  build-and-deploy:
     runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        node-version: [18.x, 20.x, 22.x]
-
     steps:
-    - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ matrix.node-version }}
-        cache: 'npm'
+      - name: Use Node.js 22.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: "npm"
 
-    - name: Install dependencies
-      run: npm ci
+      - name: Install dependencies
+        run: npm ci
 
-    - name: Lint
-      if: success() && (startsWith(matrix.node-version, '18') || true) # run on at least one runner; adjust if needed
-      run: |
-        if npm run -s lint 2>/dev/null; then
-          npm run lint
-        else
-          echo "No lint script defined — skipping"
-        fi
+      - name: Run tests (if present)
+        run: |
+          if npm run -s test >/dev/null 2>&1; then
+            npm test
+          else
+            echo "No test script found — skipping tests"
+          fi
 
-    - name: Run tests
-      run: npm test
+      - name: Build
+        run: npm run build
 
-    - name: Build
-      run: npm run build
-
-    - name: Upload build artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: build-${{ matrix.node-version }}
-        path: |
-          build
-          dist
-          # add any other output folders your project produces
-
-  deploy:
-    name: Deploy (production)
-    runs-on: ubuntu-latest
-    needs: build
-    if: github.ref == 'refs/heads/main'
-    environment:
-      name: production
-      # url: https://example.com   # optional: set if you want a link in the UI
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Download build artifact (choose one of the matrix artifacts)
-      uses: actions/download-artifact@v4
-      with:
-        name: build-22.x
-        path: ./artifact
-      # If you want the artifact from the runner that built for a different node-version,
-      # either make the build job produce a single artifact (by using `strategy: fail-fast: false` and
-      # uploading under the same name) or replace this step with your cloud provider deploy step.
-
-    # Example: deploy via SSH+rsync (uncomment and configure if you want SSH deploy)
-    # Ensure you add these secrets in the repo settings: DEPLOY_HOST, DEPLOY_USER, DEPLOY_PORT (optional), DEPLOY_PATH, SSH_PRIVATE_KEY
-    - name: Setup SSH key
-      if: env.DEPLOY_VIA_SSH == 'true'
-      env:
-        SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-      run: |
-        mkdir -p ~/.ssh
-        echo "$SSH_KEY" > ~/.ssh/id_rsa
-        chmod 600 ~/.ssh/id_rsa
-        ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
-
-    - name: Rsync files to host
-      if: env.DEPLOY_VIA_SSH == 'true'
-      env:
-        DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-        DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-        DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-        DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
-      run: |
-        rsync -avz --delete ./artifact/ $DEPLOY_USER@$DEPLOY_HOST:${DEPLOY_PATH}
-
-    # Example: GitHub Pages deploy (static sites)
-    # - name: Deploy to GitHub Pages
-    #   uses: peaceiris/actions-gh-pages@v3
-    #   with:
-    #     github_token: ${{ secrets.GITHUB_TOKEN }}
-    #     publish_dir: ./artifact
-
-    - name: Deployment complete
-      run: echo "Deployment step finished. Customize deploy step to match your hosting provider."
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./build
+          publish_branch: main
