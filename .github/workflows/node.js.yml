@@ -1,6 +1,5 @@
 name: CI → GitHub Pages
 
-# Run only on direct pushes to main (single-developer preference)
 on:
   push:
     branches: ["main"]
